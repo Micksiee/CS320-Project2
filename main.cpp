@@ -21,24 +21,24 @@ int main(int argc, char *argv[]) {
   int cacheHits = 0;
   int accesses = 0;
   int cacheSize[4] = {1, 4, 16, 32};
-  int i = 0;
   for(int i = 0; i < 4; i++){
     int cacheLines = (cacheSize[i] * 1024) / 32;
     int cache[cacheLines] = {0};
     int indexBits = log2(cacheLines);
     unsigned int bitmask = (1 << indexBits) - 1;
+    int tagShift = log2(32) + indexBits;
     while(infile >> instructionType >> std::hex >> addr){
       int index = addr & bitmask;
-      int tag = addr >> (log2(32) + log2(cacheLines));      //Differentiating the tag from the address doesn't matter for the direct mapped cache, since there is the index used, but it will matter later for fully-associative so for consistency I use it here
+      int tag = addr >> tagShift;      //Differentiating the tag from the address doesn't matter for the direct mapped cache, since there is the index used, but it will matter later for fully-associative so for consistency I use it here
       if(cache[index] == tag){
         cacheHits++;
       }else{
-        cache[index] = tag;
+	cache[index] = tag;
       }
       accesses++;
     }
     cout << cacheHits << "," << accesses << "; ";
-    outfile << cacheHits << "," << accesses << "; "
+    outfile << cacheHits << "," << accesses << "; ";
     infile.clear();
     infile.seekg(0);
     cacheHits = 0;
@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
   outfile << endl;
 
   //Set associative cache
-  int associativity[4] = {2, 4, 8, 16};
+ /* int associativity[4] = {2, 4, 8, 16};
   for(int i = 0; i < 4; i++){
     int ways = associativity[i];
     int cacheLines = (16 * 1024) / 32;
@@ -328,7 +328,7 @@ int main(int argc, char *argv[]) {
 
 
   //write back policy
-
+	*/
 
   return 0;
 }
