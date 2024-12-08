@@ -413,7 +413,7 @@ int main(int argc, char *argv[]) {
 	wbL1LRU[L1index][i] = 4;
 
 	if(instructionType == "S"){     //If the instruction is a store, we now mark the edited block as dirty
-	wbL1dirty[L1index][i] = true;
+	  wbL1dirty[L1index][i] = true;
 	}
       }
     }
@@ -429,34 +429,34 @@ int main(int argc, char *argv[]) {
 	}
       }
       if(wbL1dirty[L1index][L1LRUindex]){ //if the block we are evicting is dirty, we need to write-back to L2 cache first
-	  L2accesses++;
-	  for(int i = 0; i < 8; i++){
-	    if(wbL2cache[L2index][i] == wbL1cache[L1index][L1LRUindex] >> 3){//if there is a cache hit for the block in L2, it is written back to L2 and the block in L2 is now dirty as well
-	      L2hit = true;
-	      L2cacheHits++;
-	    }
-	  }
-	  for(int i = 0; i < 8; i++){
-	    if(wbL2LRU[L2index][i] < wbL2LRU[L2index][L2LRUindex]){
-	      L2LRUindex = i;
-	    }
-	  }
-	  if(!L2hit){//If there is an L2 miss, the LRU is evicted and replaced with the dirty block from L1
-	    wbL2cache[L2index][L2LRUindex] = wbL1cache[L1index][L1LRUindex] >> 3; //shifted 3 bits, as the L1 tags are 22 bits long and the L2 tags are 19.
-	    //wbL2dirty[L2index][L2LRUindex] = true;
-	  }
-	  if(instructionType == "L"){
-	    wbL1dirty[L1index][L1LRUindex] = false; //L1 block is being evicted, if it was a load then the block is not dirty anymore
-	  }
-	  //either way we update the LRU for L2 again
-	  wbL2LRU[L2index][L2LRUindex] = 8;
-	  for(int i = 0; i < 8; i++){
-	    if(i != L2LRUindex){
-	      wbL2LRU[L2index][i]--;
-	    }
+	L2accesses++;
+	for(int i = 0; i < 8; i++){
+	  if(wbL2cache[L2index][i] == wbL1cache[L1index][L1LRUindex] >> 3){//if there is a cache hit for the block in L2, it is written back to L2 and the block in L2 is now dirty as well
+	    L2hit = true;
+	    L2cacheHits++;
 	  }
 	}
-	//Now we've written it back, we can continue the L2 cache load
+	for(int i = 0; i < 8; i++){
+	  if(wbL2LRU[L2index][i] < wbL2LRU[L2index][L2LRUindex]){
+	    L2LRUindex = i;
+	  }
+	}
+	if(!L2hit){//If there is an L2 miss, the LRU is evicted and replaced with the dirty block from L1
+	  wbL2cache[L2index][L2LRUindex] = wbL1cache[L1index][L1LRUindex] >> 3; //shifted 3 bits, as the L1 tags are 22 bits long and the L2 tags are 19.
+	  //wbL2dirty[L2index][L2LRUindex] = true;
+	}
+	if(instructionType == "L"){
+	  wbL1dirty[L1index][L1LRUindex] = false; //L1 block is being evicted, if it was a load then the block is not dirty anymore
+	}
+	//either way we update the LRU for L2 again
+	wbL2LRU[L2index][L2LRUindex] = 8;
+	for(int i = 0; i < 8; i++){
+	  if(i != L2LRUindex){
+	    wbL2LRU[L2index][i]--;
+	  }
+	}
+      }
+      //Now we've written it back, we can continue the L2 cache load
       L2hit = false;
       L2accesses++;
       
@@ -498,6 +498,11 @@ int main(int argc, char *argv[]) {
 
       //Now we replace the block in the L1 cache and update the LRU
       wbL1cache[L1index][L1LRUindex] = L1tag;
+      if(instructionType == "S"){
+	wbL1dirty[L1index][L1LRUindex] = true;
+      }else{
+	wbL1dirty[L1index][L1LRUindex] = false;
+      }
 
       for(int i = 0; i < 4; i++){
 	if(i != L1LRUindex){
@@ -507,8 +512,20 @@ int main(int argc, char *argv[]) {
       wbL1LRU[L1index][L1LRUindex] = 4;
     }
   }
-  cout << L1cacheHits << "," << L1accesses << ";" << L2cacheHits << "," << L2accesses << ";" << endl;
-  outfile << L1cacheHits << "," << L1accesses << ";" << L2cacheHits << "," << L2accesses << ";" << endl;
+
+  int L2size = 0;
+  int L2util = 0;
+  for(int i = 0; i < L2cacheLineSets; i++){
+    for(int j = 0; j < 8; j++){
+      if(wbL2cache[i][j] != 0){
+	L2util++;
+      }
+      L2size++;
+    }
+  }
+  float L2fullutil = L2util / L2size;
+  cout << L1cacheHits << "," << L1accesses << ";" << L2cacheHits << "," << L2accesses << "; " << L2fullutil << endl;
+  outfile << L1cacheHits << "," << L1accesses << ";" << L2cacheHits << "," << L2accesses << "; " << L2fullutil << endl;
   infile.clear();
   infile.seekg(0);
   return 0;
