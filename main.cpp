@@ -2,6 +2,7 @@
 #include<fstream>
 #include<string>
 #include<cmath>
+#include<bitset>
 
 using namespace std;
 
@@ -25,11 +26,12 @@ int main(int argc, char *argv[]) {
     int cacheLines = (cacheSize[i] * 1024) / 32;
     int cache[cacheLines] = {0};
     int indexBits = log2(cacheLines);
-    unsigned int bitmask = (1 << indexBits) - 1;
-    int tagShift = log2(32) + indexBits;
+    int blockOffset = log2(32);
+    unsigned int bitmask = (1 << (indexBits)) - 1;
     while(infile >> instructionType >> std::hex >> addr){
+      addr = addr >> blockOffset;
       int index = addr & bitmask;
-      int tag = addr >> tagShift;      //Differentiating the tag from the address doesn't matter for the direct mapped cache, since there is the index used, but it will matter later for fully-associative so for consistency I use it here
+      int tag = addr >> indexBits;
       if(cache[index] == tag){
         cacheHits++;
       }else{
@@ -48,32 +50,32 @@ int main(int argc, char *argv[]) {
   outfile << endl;
 
   //Set associative cache
- /* int associativity[4] = {2, 4, 8, 16};
-  for(int i = 0; i < 4; i++){
+  int associativity[4] = {2, 4, 8, 16};
+  for(int i = 0; i < 4; i++){ //CHANGE BACK TO 4
     int ways = associativity[i];
-    int cacheLines = (16 * 1024) / 32;
+    int cacheLines = (16 * 1024) / 32; //change to 16
     int cacheLineSets = cacheLines / ways;
-    int cache[cacheLineSets][ways] = {0};
-    int LRU[cacheLineSets][ways] = {0};
+    int cache[cacheLineSets][ways] = {0, 0};
+    int LRU[cacheLineSets][ways] = {0, 0};
     int indexBits = log2(cacheLineSets);
+    int blockOffset = log2(32);
     unsigned int bitmask = (1 << indexBits) - 1;
-    while(infile >> instructionType >> std:hex >> addr){
+    bool hit;
+    while(infile >> instructionType >> std::hex >> addr){
+      addr = addr >> blockOffset;
       int index = addr & bitmask;
-      int tag = addr >> (log2(32) + log2(cacheLineSets))
-      bool hit = false;
+      int tag = addr >> indexBits;
+      hit = false;
       for(int j = 0; j < ways; j++){  //Checking all of the sets in the line for the tag
         if(cache[index][j] == tag){
-
           cacheHits++;
           hit = true;
-
           for(int k = 0; k < ways; k++){  //Since there was a cache hit, we need to decrement the LRU value of all other sets
             if(k != j){
               LRU[index][k]--;
             }
           }
           LRU[index][j] = ways;           //Set the access's set to the MRU
-
           break;
         }
       }
@@ -95,11 +97,10 @@ int main(int argc, char *argv[]) {
         LRU[index][LRUindex] = ways;
 
       }
-
       accesses++;
     }
     cout << cacheHits << "," << accesses << "; ";
-    outfile << cacheHits << "," << accesses << "; "
+    outfile << cacheHits << "," << accesses << "; ";
     infile.clear();
     infile.seekg(0);
     cacheHits = 0;
@@ -110,30 +111,33 @@ int main(int argc, char *argv[]) {
 
   //Fully associative cache
   for(int i = 0; i < 2; i++){ //0 will represent LRU used, 1 will represent hot-cold approx used
-    int cacheLines = (16 * 1024) / 32;
+    int cacheLines = (16 * 1024) / 32;  //CHANGE BACK TO 16
     int cache[cacheLines] = {0};
+    int blockOffset = log2(32);
     int LRU[cacheLines] = {0};
     int HCLRUtree[cacheLines - 1] = {0};
-    while(infile >> instructionType >> std:hex >> addr){
-      int tag = addr >> (log2(32) + log2(cacheLines));
+    while(infile >> instructionType >> std::hex >> addr){
+      accesses++;
+      int tag = addr >> blockOffset;
       bool hit = false;
+      //cout << "Tag is " << tag << endl;
       for(int j = 0; j < cacheLines; j++){
         if(cache[j] == tag){
           cacheHits++;
           hit = true;
           if(i){  //Hot cold approx used
-            int tree_node = j + cacheLines - 1;         //Starting at the accessed set
-            while(tree_node > 0){                      //Traversing up the tree and updating until we get to the root. once the tree_node is 0 it is the root and has no parent to update
-              int parent_node = (tree_node - 1) / 2;  //We find the index of the parent node and it's left child. if the node isn't the left child, it's the right child
-              int l_child = 2 * parent_node + 1;
+            int treeNode = j + cacheLines - 1;         //Starting at the accessed cache line
+            while(treeNode > 0){                      //Traversing up the tree and updating until we get to the root. once the treeNode is 0 it is the root and has no parent to update
+              int parentNode = (treeNode - 1) / 2;  //We find the index of the parent node and it's left child. if the node isn't the left child, it's the right child
+              int leftChild = (2 * parentNode) + 1;
 
-              if(tree_node == l_child){        //Here is the check for which child it is, and then we update the parent accordingly. we only need the l
-                HCLRUtree[parent_node] = 1;
+              if(treeNode == leftChild){        //Here is the check for which child it is, and then we update the parent accordingly. we only need the l
+                HCLRUtree[parentNode] = 1;
               }else{
-                HCLRUtree[parent_node] = 0;
+                HCLRUtree[parentNode] = 0;
               }
 
-              tree_node = parent_node;
+              treeNode = parentNode;
 
             }
           }else{  //LRU used
@@ -149,31 +153,30 @@ int main(int argc, char *argv[]) {
       if(!hit){
         if(i){  //Hot cold approx
           int LRUindex;
-          int tree_node = 0; //here we traverse DOWN the tree, so we start at the root
+          int treeNode = 0; //here we traverse DOWN the tree, so we start at the root
 
-          while(tree_node < cacheLines - 1){
-            if(HCLRUtree[tree_node]){       //if the current node is 1, move to the right child, if not, move left
-              tree_node = 2 * tree_node + 2;
+          while(treeNode < cacheLines - 1){
+            if(HCLRUtree[treeNode]){       //if the current node is 1, move to the right child, if not, move left
+              treeNode = 2 * treeNode + 2;
             }else{
-              tree_node = 2 * tree_node + 1;
+              treeNode = 2 * treeNode + 1;
             }
           }
-          LRUindex = tree_node - cacheLines + 1;  //Subtract the amount of non-leaf nodes to find the index in the cache
+          LRUindex = treeNode - cacheLines + 1;  //Subtract the amount of non-leaf nodes to find the index in the cache
 
           cache[LRUindex] = tag;
 
-          tree_node = LRUindex;   //Same as before, we traverse up the tree from the index of the node we just changed
-          while(tree_node > 0){                      
-              int parent_node = (tree_node - 1) / 2;  
-              int l_child = 2 * parent_node + 1;
-
-              if(tree_node == l_child){        
-                HCLRUtree[parent_node] = 1;
+          treeNode = LRUindex + cacheLines - 1;   //Same as before, we traverse up the tree from the index of the node we just changed
+          while(treeNode > 0){                      
+              int parentNode = (treeNode - 1) / 2;  
+              int leftChild = 2 * parentNode + 1;
+              if(treeNode == leftChild){
+                HCLRUtree[parentNode] = 1;
               }else{
-                HCLRUtree[parent_node] = 0;
+                HCLRUtree[parentNode] = 0;
               }
 
-              tree_node = parent_node;
+              treeNode  = parentNode;
 
             }
 
@@ -187,17 +190,17 @@ int main(int argc, char *argv[]) {
 
           for(int j = 0; j < cacheLines; j++){  //Decrementing all except LRU, which will be evicted and replaced
             if(j != LRUindex){
-              LRU[LRUindex]--;
+              LRU[j]--;
             }
           }
-
           LRU[LRUindex] = cacheLines;     //Setting MRU
           cache[LRUindex] = tag;          //block eviction
         }
       }
+      
     }
     cout << cacheHits << "," << accesses << "; ";
-    outfile << cacheHits << "," << accesses << "; "
+    outfile << cacheHits << "," << accesses << "; ";
     infile.clear();
     infile.seekg(0);
     cacheHits = 0;
@@ -207,6 +210,8 @@ int main(int argc, char *argv[]) {
   outfile << endl;
 
   //2-Level write through
+  //=================================================================================
+  //=================================================================================
   int L1cacheHits = 0;  //new variable names for clarity
   int L1accesses = 0;
   int L2cacheHits = 0;
@@ -214,25 +219,34 @@ int main(int argc, char *argv[]) {
 
   int L1cacheLines = (4 * 1024) / 32;
   int L1cacheLineSets = L1cacheLines / 4;
-  int L1cache[L1cacheLinesSets][4] = {0};
-  int L1LRU[L1cacheLinesSets][4] = {0};
+  int L1blockOffset = log2(32);
+  int L1cache[L1cacheLineSets][4] = {0};
+  int L1LRU[L1cacheLineSets][4] = {0};
   int L1indexBits = log2(L1cacheLineSets);
   unsigned int L1bitmask = (1 << L1indexBits) - 1;
 
   int L2cacheLines = (64 * 1024) / 64;
   int L2cacheLineSets = L2cacheLines / 8;
+  int L2blockOffset = log2(64);
   int L2cache[L2cacheLineSets][8] = {0};
   int L2LRU[L2cacheLineSets][8] = {0};
   int L2indexBits = log2(L2cacheLineSets);
   unsigned int L2bitmask = (1 << L2indexBits) - 1;
-
-  while(infile >> instructionType >> std:hex >> addr){
+  int loopbreaker = 0;
+  while(infile >> instructionType >> std::hex >> addr){
+    if(loopbreaker > 10){
+      break;
+    }
+    //loopbreaker++;
+    
     L1accesses++;
-    int L1index = addr & L1bitmask;
-    int L1tag = addr >> (log2(32) + log2(L1cacheLineSets));
+    unsigned long long L1addr = addr >> L1blockOffset;
+    int L1index = L1addr & L1bitmask;
+    int L1tag = L1addr >> L1indexBits;
 
-    int L2index = addr & L2bitmask;
-    int L2tag = addr >> (log2(64) + log2(L2cacheLineSets));
+    unsigned long long L2addr = addr >> L2blockOffset;
+    int L2index = L2addr & L2bitmask;
+    int L2tag = L2addr >> L2indexBits;
     
     bool hit = false;
 
@@ -247,23 +261,42 @@ int main(int argc, char *argv[]) {
         }
 
         L1LRU[L1index][i] = 4;
-        if(behavior == "S"){
+	
+        if(instructionType == "S"){
+	  bool L2hit = false;
           L2accesses++;
           for(int j = 0; j < 8; j++){
-            if(L2cache[L2index][i] == L2tag){
+            if(L2cache[L2index][j] == L2tag){
+	      L2hit = true;
               L2cacheHits++;
-              hit = true;
-              for(int j = 0; j < 8; j++){
-                if(i != j){
-                  L2LRU[L2index][j]--;
+              for(int k = 0; k < 8; k++){
+                if(j != k){
+                  L2LRU[L2index][k]--;
                 }
               }
-            L2LRU[L2index][i] = 8;
+            L2LRU[L2index][j] = 8;
             break;
             }
           }
-        }
+	  if(!L2hit){ //since there was an L1 hit and L2 miss on store, we replace the block in L2
+	    int L2LRUindex = 0;
+	    for(int j = 0; j < 8; j++){//find lru and evict it
+	      if(L2LRU[L2index][j] < L2LRU[L2index][L2LRUindex]){
+		L2LRUindex = j;
+	      }
+	    }
 
+	    L2cache[L2index][L2LRUindex] = L2tag;
+	    L2LRU[L2index][L2LRUindex] = 8;
+
+	    for(int j = 0; j < 8; j++){
+	      if(j != L2LRUindex){
+		L2LRU[L2index][j]--;
+	      }
+	    }
+	  }
+	  
+        }
         break;
       }
     }
@@ -271,7 +304,7 @@ int main(int argc, char *argv[]) {
     if(!hit){         //first we check L2 cache for a hit before we replace the block in L1
       L2accesses++;
       
-      for(int i = 0; i < 8; i ++){
+      for(int i = 0; i < 8; i++){
         if(L2cache[L2index][i] == L2tag){
           L2cacheHits++;
           hit = true;
@@ -327,8 +360,156 @@ int main(int argc, char *argv[]) {
   infile.seekg(0);
 
 
-  //write back policy
-	*/
+  //write back policy------------------------------------------------------------------
+  //===================================================================================
+  //===================================================================================
 
+  //Re-initializing counters
+  L1cacheHits = 0;
+  L1accesses = 0;
+  L2cacheHits = 0;
+  L2accesses = 0;
+
+  //initializing the arrays
+  int wbL1cache[L1cacheLineSets][4] = {0};
+  int wbL1LRU[L1cacheLineSets][4] = {0};
+  bool wbL1dirty[L1cacheLineSets][4] = {0};
+
+  int wbL2cache[L2cacheLineSets][8] = {0};
+  int wbL2LRU[L2cacheLineSets][8] = {0};
+  //bool wbL2dirty[L2cacheLineSets][8] = {0};
+
+  loopbreaker = 0;
+  
+  while(infile >> instructionType >> std::hex >> addr){
+
+    if(loopbreaker > 50){
+      break;
+    }
+    //loopbreaker++;
+    
+    L1accesses++;
+    unsigned long long L1addr = addr >> L1blockOffset;
+    int L1index = L1addr & L1bitmask;
+    int L1tag = L1addr >> L1indexBits;
+
+    unsigned long long L2addr = addr >> L2blockOffset;
+    int L2index = L2addr & L2bitmask;
+    int L2tag = L2addr >> L2indexBits;
+
+    bool L1hit = false;
+    bool L2hit = false;
+
+    for(int i = 0; i < 4; i++){
+      if(wbL1cache[L1index][i] == L1tag){
+	L1cacheHits++;
+	L1hit = true;
+	for(int j = 0; j < 4; j++){
+	  if(i != j){
+	    wbL1LRU[L1index][j]--;
+	  }
+	}
+
+	wbL1LRU[L1index][i] = 4;
+
+	if(instructionType == "S"){     //If the instruction is a store, we now mark the edited block as dirty
+	wbL1dirty[L1index][i] = true;
+	}
+      }
+    }
+
+    if(!L1hit){//L1 cache miss, so we access L2
+      
+      //Finding the L1LRU index first, because we'll need it to check if the block we're replacing is dirty
+      int L1LRUindex = 0;
+      int L2LRUindex = 0;
+      for(int i = 0; i < 4; i++){
+	if(wbL1LRU[L1index][i] < wbL1LRU[L1index][L1LRUindex]){
+	  L1LRUindex = i;
+	}
+      }
+      if(wbL1dirty[L1index][L1LRUindex]){ //if the block we are evicting is dirty, we need to write-back to L2 cache first
+	  L2accesses++;
+	  for(int i = 0; i < 8; i++){
+	    if(wbL2cache[L2index][i] == wbL1cache[L1index][L1LRUindex] >> 3){//if there is a cache hit for the block in L2, it is written back to L2 and the block in L2 is now dirty as well
+	      L2hit = true;
+	      L2cacheHits++;
+	    }
+	  }
+	  for(int i = 0; i < 8; i++){
+	    if(wbL2LRU[L2index][i] < wbL2LRU[L2index][L2LRUindex]){
+	      L2LRUindex = i;
+	    }
+	  }
+	  if(!L2hit){//If there is an L2 miss, the LRU is evicted and replaced with the dirty block from L1
+	    wbL2cache[L2index][L2LRUindex] = wbL1cache[L1index][L1LRUindex] >> 3; //shifted 3 bits, as the L1 tags are 22 bits long and the L2 tags are 19.
+	    //wbL2dirty[L2index][L2LRUindex] = true;
+	  }
+	  if(instructionType == "L"){
+	    wbL1dirty[L1index][L1LRUindex] = false; //L1 block is being evicted, if it was a load then the block is not dirty anymore
+	  }
+	  //either way we update the LRU for L2 again
+	  wbL2LRU[L2index][L2LRUindex] = 8;
+	  for(int i = 0; i < 8; i++){
+	    if(i != L2LRUindex){
+	      wbL2LRU[L2index][i]--;
+	    }
+	  }
+	}
+	//Now we've written it back, we can continue the L2 cache load
+      L2hit = false;
+      L2accesses++;
+      
+      for(int i = 0; i < 8; i++){
+	if(wbL2cache[L2index][i] == L2tag){
+	  L2cacheHits++;
+	  L2hit = true;
+	  for(int j = 0; j < 8; j++){
+	    if(i != j){
+	      wbL2LRU[L2index][j]--;
+	    }
+	  }
+
+	  wbL2LRU[L2index][i] = 8;
+	  break;
+	}
+      }
+      
+
+      
+      if(!L2hit){
+	L2LRUindex = 0;
+	for(int i = 0; i < 8; i++){
+	  if(wbL2LRU[L2index][i] < wbL2LRU[L2index][L2LRUindex]){
+	    L2LRUindex = i;
+	  }
+	}
+
+	wbL2cache[L2index][L2LRUindex] = L2tag;
+
+	//now we update the LRU for L2
+	for(int i = 0; i < 8; i++){
+	  if(i != L2LRUindex){
+	    wbL2LRU[L2index][i]--;
+	  }
+	}
+	wbL2LRU[L2index][L2LRUindex] = 8;	
+      }
+
+      //Now we replace the block in the L1 cache and update the LRU
+      wbL1cache[L1index][L1LRUindex] = L1tag;
+
+      for(int i = 0; i < 4; i++){
+	if(i != L1LRUindex){
+	  wbL1LRU[L1index][i]--;
+	}
+      }
+      wbL1LRU[L1index][L1LRUindex] = 4;
+    }
+  }
+  cout << L1cacheHits << "," << L1accesses << ";" << L2cacheHits << "," << L2accesses << ";" << endl;
+  outfile << L1cacheHits << "," << L1accesses << ";" << L2cacheHits << "," << L2accesses << ";" << endl;
+  infile.clear();
+  infile.seekg(0);
   return 0;
 }
