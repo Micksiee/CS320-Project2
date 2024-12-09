@@ -364,169 +364,173 @@ int main(int argc, char *argv[]) {
   //===================================================================================
   //===================================================================================
 
-  //Re-initializing counters
-  L1cacheHits = 0;
-  L1accesses = 0;
-  L2cacheHits = 0;
-  L2accesses = 0;
 
-  //initializing the arrays
-  int wbL1cache[L1cacheLineSets][4] = {0};
-  int wbL1LRU[L1cacheLineSets][4] = {0};
-  bool wbL1dirty[L1cacheLineSets][4] = {0};
 
-  int wbL2cache[L2cacheLineSets][8] = {0};
-  int wbL2LRU[L2cacheLineSets][8] = {0};
-  //bool wbL2dirty[L2cacheLineSets][8] = {0};
+  int L2associativity[3] = {8, 1024, 1};//8 is for 8 way associative, 1024 is for fully associative and 1 is for direct mapped
+  for(int ass = 0; ass < 3; ass++){//CHANGE TO 3
+    //Re-initializing counters
+    L1cacheHits = 0;
+    L1accesses = 0;
+    L2cacheHits = 0;
+    L2accesses = 0;
+    L2cacheLineSets = L2cacheLines / L2associativity[ass];
+    L2indexBits = log2(L2cacheLineSets);
+    L2bitmask = (1 << L2indexBits) - 1;
+    //initializing the arrays
+    int wbL1cache[L1cacheLineSets][4] = {0};
+    int wbL1LRU[L1cacheLineSets][4] = {0};
+    bool wbL1dirty[L1cacheLineSets][4] = {0};
 
-  loopbreaker = 0;
+    int wbL2cache[L2cacheLineSets][L2associativity[ass]] = {0};
+    int wbL2LRU[L2cacheLineSets][L2associativity[ass]] = {0};
   
-  while(infile >> instructionType >> std::hex >> addr){
-
-    if(loopbreaker > 50){
-      break;
-    }
-    //loopbreaker++;
+    while(infile >> instructionType >> std::hex >> addr){
     
-    L1accesses++;
-    unsigned long long L1addr = addr >> L1blockOffset;
-    int L1index = L1addr & L1bitmask;
-    int L1tag = L1addr >> L1indexBits;
+      L1accesses++;
+      unsigned long long L1addr = addr >> L1blockOffset;
+      int L1index = L1addr & L1bitmask;
+      int L1tag = L1addr >> L1indexBits;
 
-    unsigned long long L2addr = addr >> L2blockOffset;
-    int L2index = L2addr & L2bitmask;
-    int L2tag = L2addr >> L2indexBits;
+      unsigned long long L2addr = addr >> L2blockOffset;
+      int L2index = L2addr & L2bitmask;
+      int L2tag = L2addr >> L2indexBits;
 
-    bool L1hit = false;
-    bool L2hit = false;
+      bool L1hit = false;
+      bool L2hit = false;
 
-    for(int i = 0; i < 4; i++){
-      if(wbL1cache[L1index][i] == L1tag){
-	L1cacheHits++;
-	L1hit = true;
-	for(int j = 0; j < 4; j++){
-	  if(i != j){
-	    wbL1LRU[L1index][j]--;
-	  }
-	}
-
-	wbL1LRU[L1index][i] = 4;
-
-	if(instructionType == "S"){     //If the instruction is a store, we now mark the edited block as dirty
-	  wbL1dirty[L1index][i] = true;
-	}
-      }
-    }
-
-    if(!L1hit){//L1 cache miss, so we access L2
-      
-      //Finding the L1LRU index first, because we'll need it to check if the block we're replacing is dirty
-      int L1LRUindex = 0;
-      int L2LRUindex = 0;
       for(int i = 0; i < 4; i++){
-	if(wbL1LRU[L1index][i] < wbL1LRU[L1index][L1LRUindex]){
-	  L1LRUindex = i;
-	}
-      }
-      if(wbL1dirty[L1index][L1LRUindex]){ //if the block we are evicting is dirty, we need to write-back to L2 cache first
-	L2accesses++;
-	for(int i = 0; i < 8; i++){
-	  if(wbL2cache[L2index][i] == wbL1cache[L1index][L1LRUindex] >> 3){//if there is a cache hit for the block in L2, it is written back to L2 and the block in L2 is now dirty as well
-	    L2hit = true;
-	    L2cacheHits++;
-	  }
-	}
-	for(int i = 0; i < 8; i++){
-	  if(wbL2LRU[L2index][i] < wbL2LRU[L2index][L2LRUindex]){
-	    L2LRUindex = i;
-	  }
-	}
-	if(!L2hit){//If there is an L2 miss, the LRU is evicted and replaced with the dirty block from L1
-	  wbL2cache[L2index][L2LRUindex] = wbL1cache[L1index][L1LRUindex] >> 3; //shifted 3 bits, as the L1 tags are 22 bits long and the L2 tags are 19.
-	  //wbL2dirty[L2index][L2LRUindex] = true;
-	}
-	if(instructionType == "L"){
-	  wbL1dirty[L1index][L1LRUindex] = false; //L1 block is being evicted, if it was a load then the block is not dirty anymore
-	}
-	//either way we update the LRU for L2 again
-	wbL2LRU[L2index][L2LRUindex] = 8;
-	for(int i = 0; i < 8; i++){
-	  if(i != L2LRUindex){
-	    wbL2LRU[L2index][i]--;
-	  }
-	}
-      }
-      //Now we've written it back, we can continue the L2 cache load
-      L2hit = false;
-      L2accesses++;
-      
-      for(int i = 0; i < 8; i++){
-	if(wbL2cache[L2index][i] == L2tag){
-	  L2cacheHits++;
-	  L2hit = true;
-	  for(int j = 0; j < 8; j++){
+	if(wbL1cache[L1index][i] == L1tag){
+	  L1cacheHits++;
+	  L1hit = true;
+	  for(int j = 0; j < 4; j++){
 	    if(i != j){
-	      wbL2LRU[L2index][j]--;
+	      wbL1LRU[L1index][j]--;
+	    }
+	  }
+	  wbL1LRU[L1index][i] = 4;
+	  if(instructionType == "S"){     //If the instruction is a store, we now mark the accessed block as dirty
+	    wbL1dirty[L1index][i] = true;
+	  }
+	}
+      }
+
+      if(!L1hit){//L1 cache miss, so we access L2
+      
+	//Finding the L1LRU index first, because we'll need it to check if the block we're replacing is dirty
+	int L1LRUindex = 0;
+	int L2LRUindex = 0;
+	for(int i = 0; i < 4; i++){
+	  if(wbL1LRU[L1index][i] < wbL1LRU[L1index][L1LRUindex]){
+	    L1LRUindex = i;
+	  }
+	}
+
+      
+	if(wbL1dirty[L1index][L1LRUindex]){ //if the block we are evicting is dirty, we need to write-back to L2 cache first
+	  L2accesses++;
+	  for(int i = 0; i < L2associativity[ass]; i++){
+	    if(wbL2cache[L2index][i] == wbL1cache[L1index][L1LRUindex] >> 3){//if there is a cache hit for the block in L2, it is written back to L2 and the block in L2 is now dirty as well
+	      L2hit = true;
+	      L2cacheHits++;
+	      L2LRUindex = i;
 	    }
 	  }
 
-	  wbL2LRU[L2index][i] = 8;
-	  break;
+	  if(!L2hit){//If there is an L2 miss, the LRU is evicted and replaced with the dirty block from L1
+	    L2LRUindex = 0;
+	    for(int i = 0; i < L2associativity[ass]; i++){
+	      if(wbL2LRU[L2index][i] < wbL2LRU[L2index][L2LRUindex]){
+		L2LRUindex = i;
+	      }
+	    }	  
+	    wbL2cache[L2index][L2LRUindex] = wbL1cache[L1index][L1LRUindex] >> 3; //shifted 3 bits, as the L1 tags are 22 bits long and the L2 tags are 19.
+	    wbL2LRU[L2index][L2LRUindex] = L2associativity[ass];
+	    for(int i = 0; i < L2associativity[ass]; i++){
+	      if(i != L2LRUindex){
+		wbL2LRU[L2index][i]--;
+	      }
+	    }	  
+	  }else{//If it was in L2 hit, then we make the MRU the block that the dirty block was written back to
+	    for(int i = 0; i < L2associativity[ass]; i++){
+	      if(i != L2LRUindex){
+		wbL2LRU[L2index][i]--;
+	      }
+	    }
+	    wbL2LRU[L2index][L2LRUindex] = L2associativity[ass];
+	  }
+	
+	  if(instructionType == "L"){
+	    wbL1dirty[L1index][L1LRUindex] = false; //L1 dirty block is being evicted, if it was a load then the block is not dirty anymore
+	  } 
 	}
-      }
-      
 
       
-      if(!L2hit){
-	L2LRUindex = 0;
-	for(int i = 0; i < 8; i++){
-	  if(wbL2LRU[L2index][i] < wbL2LRU[L2index][L2LRUindex]){
-	    L2LRUindex = i;
+	//Now we've written it back, we can continue the L2 cache load
+	L2hit = false;
+	L2accesses++;
+      
+	for(int i = 0; i < L2associativity[ass]; i++){
+	  if(wbL2cache[L2index][i] == L2tag){
+	    L2cacheHits++;
+	    L2hit = true;
+	    for(int j = 0; j < L2associativity[ass]; j++){
+	      if(i != j){
+		wbL2LRU[L2index][j]--;
+	      }
+	    }
+	    wbL2LRU[L2index][i] = L2associativity[ass];
 	  }
 	}
+      
+	if(!L2hit){
+	  L2LRUindex = 0;
+	  for(int i = 0; i < L2associativity[ass]; i++){
+	    if(wbL2LRU[L2index][i] < wbL2LRU[L2index][L2LRUindex]){
+	      L2LRUindex = i;
+	    }
+	  }
+	  wbL2cache[L2index][L2LRUindex] = L2tag;
 
-	wbL2cache[L2index][L2LRUindex] = L2tag;
+	  //now we update the LRU for L2
+	  for(int i = 0; i < L2associativity[ass]; i++){
+	    if(i != L2LRUindex){
+	      wbL2LRU[L2index][i]--;
+	    }
+	  }
+	  wbL2LRU[L2index][L2LRUindex] = L2associativity[ass];	
+	}
 
-	//now we update the LRU for L2
-	for(int i = 0; i < 8; i++){
-	  if(i != L2LRUindex){
-	    wbL2LRU[L2index][i]--;
+	//Now we replace the block in the L1 cache and update the LRU
+	wbL1cache[L1index][L1LRUindex] = L1tag;
+	if(instructionType == "S"){
+	  wbL1dirty[L1index][L1LRUindex] = true;
+	}else{
+	  wbL1dirty[L1index][L1LRUindex] = false;
+	}
+	for(int i = 0; i < 4; i++){
+	  if(i != L1LRUindex){
+	    wbL1LRU[L1index][i]--;
 	  }
 	}
-	wbL2LRU[L2index][L2LRUindex] = 8;	
-      }
+	wbL1LRU[L1index][L1LRUindex] = 4;
+      }   
+    }
 
-      //Now we replace the block in the L1 cache and update the LRU
-      wbL1cache[L1index][L1LRUindex] = L1tag;
-      if(instructionType == "S"){
-	wbL1dirty[L1index][L1LRUindex] = true;
-      }else{
-	wbL1dirty[L1index][L1LRUindex] = false;
-      }
-
-      for(int i = 0; i < 4; i++){
-	if(i != L1LRUindex){
-	  wbL1LRU[L1index][i]--;
+    float L2size = 0;
+    float L2util = 0;
+    for(int i = 0; i < L2cacheLineSets; i++){
+      for(int j = 0; j < L2associativity[ass]; j++){
+	if(wbL2cache[i][j] != 0){
+	  L2util++;
 	}
+	L2size++;
       }
-      wbL1LRU[L1index][L1LRUindex] = 4;
     }
+    float L2fullutil = L2util / L2size;
+    cout << L1cacheHits << "," << L1accesses << ";" << L2cacheHits << "," << L2accesses << "; " << L2fullutil << endl;
+    outfile << L1cacheHits << "," << L1accesses << ";" << L2cacheHits << "," << L2accesses << "; " << L2fullutil << endl;
+    infile.clear();
+    infile.seekg(0);
   }
-
-  int L2size = 0;
-  int L2util = 0;
-  for(int i = 0; i < L2cacheLineSets; i++){
-    for(int j = 0; j < 8; j++){
-      if(wbL2cache[i][j] != 0){
-	L2util++;
-      }
-      L2size++;
-    }
-  }
-  float L2fullutil = L2util / L2size;
-  cout << L1cacheHits << "," << L1accesses << ";" << L2cacheHits << "," << L2accesses << "; " << L2fullutil << endl;
-  outfile << L1cacheHits << "," << L1accesses << ";" << L2cacheHits << "," << L2accesses << "; " << L2fullutil << endl;
-  infile.clear();
-  infile.seekg(0);
   return 0;
 }
